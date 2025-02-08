@@ -71,3 +71,51 @@ void printf(const char *fmt, ...)
 end:
     va_end(vargs);
 }
+
+// srcからnバイトぶんをdstにコピーする
+void *memcpy(void *dst, const void *src, size_t n){
+    uint8_t *d = (uint8_t *)dst; // ポインターの宣言
+    const uint8_t *s = (const uint8_t *) src;
+    while(n--){
+        *d++ = *s++;
+    };
+    return dst;
+}
+
+// bufの先頭からnバイトぶんをcで埋める
+void *memset(void *buf, char c, size_t n) {
+    uint8_t *p = (uint8_t *) buf;
+    while (n--)
+        *p++ = c;
+        // 以下と同じ意味.
+        // *p = c;
+        // p = p + 1
+    return buf;
+}
+
+// srcの文字をdstにコピーする
+char *strcpy(char *dst, const char *src) {
+    char *d = dst;
+    while (*src)
+        *d++ = *src++;
+    *d = '\0';
+    return dst;
+}
+
+int strcmp(const char *s1, const char *s2) {
+    while (*s1 && *s2){
+        if(*s1 != *s2){
+            break;
+        }
+        s1++;
+        s2++;
+    }
+
+    // unsigned charにキャストしているのは、
+    // 比較する際は符号なし整数を使うというPOSIXの仕様に合わせるため
+    return *(unsigned char*)s1 - *(unsigned char *)s2;
+}
+
+
+
+
