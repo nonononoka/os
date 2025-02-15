@@ -1,6 +1,18 @@
 #pragma once
 #include "common.h"
 
+#define PROCS_MAX 8       // 最大プロセス数
+
+#define PROC_UNUSED   0   // 未使用のプロセス管理構造体
+#define PROC_RUNNABLE 1   // 実行可能なプロセス
+
+struct process{
+    int pid;
+    int state;
+    vaddr_t sp;
+    uint8_t stack[8192];
+};
+
 // スタックに積まれている元の実行状態の構造.
 struct trap_frame {
     uint32_t ra;
