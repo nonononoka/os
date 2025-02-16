@@ -31,7 +31,7 @@ __attribute__((naked)) void switch_context(uint32_t *prev_sp, uint32_t *next_sp)
         "sw s10, 11 * 4(sp)\n"
         "sw s11, 12 * 4(sp)\n"
 
-        // スタックポインタの切り替え. a0が引数なの？
+        // スタックポインタの切り替え. a0が引数.
         "sw sp, (a0)\n" // spの値を、a0が指すメモリ位置に保存する. つまりproc->spに今のspを保存する.
         "lw sp, (a1)\n" // a1が指すメモリをspにロードする.
         // 次のプロセスのスタックからレジスタを復元
@@ -68,6 +68,14 @@ void yield(void){
         return;
     }
 
+    // カーネルが好きに使っていいsscratchレジスタに
+    // 次のプロセスのstackの最初のポインタを入れておく.
+    __asm__ __volatile__(
+        "csrw sscratch, %[sscratch]\n"
+        :
+        : [sscratch] "r" ((uint32_t) &next->stack[sizeof(next->stack)])
+    );
+
     struct process *prev = current_proc;
     current_proc = next;
     switch_context(&prev->sp, &next->sp);
@@ -86,6 +94,7 @@ struct process* create_process(uint32_t pc){
     if (!proc)
         PANIC("no free process slots");
     
+    // next->stack 配列の 終端直後のメモリアドレスを刺す
     uint32_t *sp = (uint32_t *) &proc->stack[sizeof(proc->stack)];
     *--sp = 0;                      // s11
     *--sp = 0;                      // s10
@@ -180,11 +189,8 @@ __attribute__((naked))
 __attribute__((aligned(4)))
 void kernel_entry(void){
     __asm__ __volatile__(
-        // sscratchレジスタに、例外発生時のスタックポインタを保存
-        // しておき、後で復元する. 一時退避用.
-
-        // 現在のスタックポインタ（sp）の値を sscratch に保存.
-        "csrw sscratch, sp\n" // csrwはCSRレジスタ（Control and Status Register）に値を格納する命令
+        // 実行中プロセスのカーネルスタックをsscratchから取り出す
+        "csrrw sp, sscratch, sp\n" // sp レジスタの値を sscratch に保存. sscratch レジスタに格納されている元の値を sp レジスタにロード.
         "addi sp, sp, -4 * 31\n" // スタックに31個分のレジスタを保存するスペースを確保
         
         // 各レジスタの値をスタックに保存
@@ -218,11 +224,15 @@ void kernel_entry(void){
         "sw s9,  4 * 27(sp)\n"
         "sw s10, 4 * 28(sp)\n"
         "sw s11, 4 * 29(sp)\n"
-        // これは当時のスタックポインタをスタックに保管してるだけ
+        // これは例外発生時のスタックポインタをスタックに保管してるだけ
         "csrr a0, sscratch\n" // sscratch CSRから値を読み取り、それを汎用レジスタ a0 に格納
         "sw a0, 4 * 30(sp)\n" // a0レジスタの値をスタックに保存しています。具体的には、スタックポインタ（sp）からオフセット 4 * 30 の場所に a0 の内容を保存
+        
+        // カーネルスタックを設定し直す. sscratchに例外発生時のスタックポインタを入れちゃったので、もう一回設定し直してる.
+        "addi a0, sp, 4 * 31\n"
+        "csrw sscratch, a0\n" // a0の値をsscratchレジスタに保存
 
-        "mv a0, sp\n" // spの値を、a0 レジスタにコピー. これ何のため?
+        "mv a0, sp\n" // spの値を、a0 レジスタにコピー. handle_trapの引数.
         "call handle_trap\n"
 
         "lw ra,  4 * 0(sp)\n"
