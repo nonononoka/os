@@ -8,10 +8,14 @@ typedef uint32_t size_t;
 extern char __bss[], __bss_end[], __stack_top[];
 
 extern char __free_ram[], __free_ram_end[];
+extern char __kernel_base[];
 
 struct process procs[PROCS_MAX];
 struct process *current_proc;
 struct process* idle_proc;
+
+void map_page(uint32_t *table1, uint32_t vaddr, paddr_t paddr, uint32_t flags);
+paddr_t alloc_pages(uint32_t n);
 
 __attribute__((naked)) void switch_context(uint32_t *prev_sp, uint32_t *next_sp){
     __asm__ __volatile__(
@@ -71,9 +75,14 @@ void yield(void){
     // カーネルが好きに使っていいsscratchレジスタに
     // 次のプロセスのstackの最初のポインタを入れておく.
     __asm__ __volatile__(
+        "sfence.vma\n"
+        "csrw satp, %[satp]\n"
+        "sfence.vma\n"
         "csrw sscratch, %[sscratch]\n"
         :
-        : [sscratch] "r" ((uint32_t) &next->stack[sizeof(next->stack)])
+        // 行末のカンマを忘れずに！
+        : [satp] "r" (SATP_SV32 | ((uint32_t) next->page_table / PAGE_SIZE)),
+          [sscratch] "r" ((uint32_t) &next->stack[sizeof(next->stack)])
     );
 
     struct process *prev = current_proc;
@@ -110,9 +119,17 @@ struct process* create_process(uint32_t pc){
     *--sp = 0;                      // s0
     *--sp = (uint32_t) pc;          // ra
 
+    uint32_t *page_table = (uint32_t *) alloc_pages(1); // 新しくページテーブルを作る
+
+    // __kernel_baseから__free_ram_endまで、仮想アドレスはそのまま物理アドレスに割り当てる.
+    for(paddr_t paddr = (paddr_t) __kernel_base; paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE){
+        map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
+    }
+
     proc->pid = i + 1;
     proc->state = PROC_RUNNABLE;
     proc->sp = (uint32_t) sp;
+    proc->page_table = page_table;
     return proc;
 }
 
@@ -294,6 +311,32 @@ void handle_trap(struct trap_frame *f) {
     uint32_t user_pc = READ_CSR(sepc); // 例外発生時のプログラムカウンタ (sepc) を取得
 
     PANIC("unexpected trap scause=%x, stval=%x, sepc=%x\n", scause, stval, user_pc);
+}
+
+// table1が新しく作ったページテーブル. vaddrとpaddrの対応づけをする.
+void map_page(uint32_t *table1, uint32_t vaddr, paddr_t paddr, uint32_t flags) {
+    if(!is_aligned(vaddr, PAGE_SIZE)){
+        PANIC("unaligned vaddr %x", vaddr);
+    }
+
+    if(!is_aligned(paddr, PAGE_SIZE)){
+        PANIC("unaligned paddr %x", vaddr);
+    }
+
+    uint32_t vpn1 = (vaddr >> 22) & 0x3ff; // 1段目のページテーブル
+
+    if ((table1[vpn1] & PAGE_V) == 0) {
+        // 2段目のページテーブルが存在しないので作成する
+        uint32_t pt_paddr = alloc_pages(1); // pt_paddrは2段目のページテーブルのアドレス.
+        // pt_paddrは実装上、4096の倍数になるはず. なのでPAGE_SIZEで割ってる.
+        // 10ビット左シフトしてるのはなんで？
+        table1[vpn1] = ((pt_paddr / PAGE_SIZE) << 10) | PAGE_V;
+    }
+    
+    // 2段目のページテーブルにエントリを追加する
+    uint32_t vpn0 = (vaddr >> 12) & 0x3ff;
+    uint32_t *table0 = (uint32_t *) ((table1[vpn1] >> 10) * PAGE_SIZE);
+    table0[vpn0] = ((paddr / PAGE_SIZE) << 10) | flags | PAGE_V;
 }
 
 // この関数を.text.boot セクションに配置する
