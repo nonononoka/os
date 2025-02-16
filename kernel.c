@@ -10,6 +10,8 @@ extern char __bss[], __bss_end[], __stack_top[];
 extern char __free_ram[], __free_ram_end[];
 
 struct process procs[PROCS_MAX];
+struct process *current_proc;
+struct process* idle_proc;
 
 __attribute__((naked)) void switch_context(uint32_t *prev_sp, uint32_t *next_sp){
     __asm__ __volatile__(
@@ -49,6 +51,26 @@ __attribute__((naked)) void switch_context(uint32_t *prev_sp, uint32_t *next_sp)
         "addi sp, sp, 13 * 4\n"
         "ret\n"
     );
+}
+
+void yield(void){
+    struct process *next = idle_proc;
+    for(int i = 0; i < PROCS_MAX; i++){
+        struct process *proc = &procs[(current_proc->pid + i) % PROCS_MAX];
+        // pidはidle processじゃないかどうかの確認
+        if(proc->state == PROC_RUNNABLE && proc->pid > 0){
+            next = proc;
+            break;
+        }
+    }
+
+    if(next == current_proc){
+        return;
+    }
+
+    struct process *prev = current_proc;
+    current_proc = next;
+    switch_context(&prev->sp, &next->sp);
 }
 
 struct process* create_process(uint32_t pc){
@@ -100,7 +122,7 @@ void proc_a_entry(void){
 
     while(1){
         putchar('A');
-        switch_context(&proc_a->sp, &proc_b->sp);
+        yield();
         delay();
     }
 }
@@ -109,7 +131,7 @@ void proc_b_entry(void) {
     printf("starting process B\n");
     while (1) {
         putchar('B');
-        switch_context(&proc_b->sp, &proc_a->sp);
+        yield();
         delay();
     }
 }
@@ -244,9 +266,14 @@ void kernel_main(void) {
 
     WRITE_CSR(stvec, (uint32_t) kernel_entry);
 
+    idle_proc = create_process((uint32_t) NULL);
+    idle_proc->pid = -1; // idle
+    current_proc = idle_proc;
+
     proc_a = create_process((uint32_t) proc_a_entry);
     proc_b = create_process((uint32_t) proc_b_entry);
-    proc_a_entry();
+
+    yield();
 
     PANIC("unreachable here!");
 }
