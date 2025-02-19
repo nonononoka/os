@@ -5,6 +5,7 @@
 
 #define PROC_UNUSED   0   // 未使用のプロセス管理構造体
 #define PROC_RUNNABLE 1   // 実行可能なプロセス
+#define PROC_EXITED   2
 #define SATP_SV32 (1u << 31)
 #define PAGE_V    (1 << 0)   // 有効化ビット
 #define PAGE_R    (1 << 1)   // 読み込み可能

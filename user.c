@@ -4,7 +4,8 @@ extern char __stack_top[];
 
 // a3にシステムコール番号. a0~a2レジスタにシステムコールの引数.
 // ecall 命令を実行すると、例外ハンドラが呼び出され、カーネルに処理が移る.
-int syscall(int sysno, int arg0, int arg1, int arg2) {
+int syscall(int sysno, int arg0, int arg1, int arg2)
+{
     register int a0 __asm__("a0") = arg0;
     register int a1 __asm__("a1") = arg1;
     register int a2 __asm__("a2") = arg2;
@@ -18,14 +19,21 @@ int syscall(int sysno, int arg0, int arg1, int arg2) {
     return a0;
 }
 
-void putchar(char ch){
+void putchar(char ch)
+{
     syscall(SYS_PUTCHAR, ch, 0, 0);
+}
+
+int getchar(void)
+{
+    return syscall(SYS_GETCHAR, 0, 0, 0);
 }
 
 __attribute__((noreturn)) void exit(void)
 {
+    syscall(SYS_EXIT, 0, 0, 0);
     for (;;)
-        ;
+        ; // 念のため
 }
 
 __attribute__((section(".text.start")))

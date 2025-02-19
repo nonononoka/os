@@ -347,10 +347,14 @@ void kernel_main(void)
     current_proc = idle_proc;
 
     create_process(_binary_shell_bin_start, (size_t)_binary_shell_bin_size);
-
     yield();
+    PANIC("switched to idle process");
+}
 
-    PANIC("unreachable here!");
+long getchar(void)
+{
+    struct sbiret ret = sbi_call(0, 0, 0, 0, 0, 0, 0, 2);
+    return ret.error;
 }
 
 void handle_syscall(struct trap_frame *f)
@@ -361,6 +365,24 @@ void handle_syscall(struct trap_frame *f)
     case SYS_PUTCHAR:
         putchar(f->a0);
         break;
+    case SYS_GETCHAR:
+        while (1)
+        {
+            long ch = getchar();
+            if (ch >= 0)
+            {
+                f->a0 = ch;
+                break;
+            }
+
+            yield();
+        }
+        break;
+    case SYS_EXIT:
+        printf("process %d exited\n", current_proc->pid);
+        current_proc->state = PROC_EXITED;
+        yield();
+        PANIC("unreachable");
     default:
         PANIC("unexpected syscall a3=%x\n", f->a3);
     }
